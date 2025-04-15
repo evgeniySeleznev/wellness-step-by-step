@@ -12,7 +12,9 @@ var ErrNotFound = errors.New("record not found")
 
 type Repository interface {
 	CreateClient(client *Client) error
-	GetClientByID(id string) (*Client, error)
+	GetClientByID(id uint) (*Client, error) // Изменили тип id на uint
+	UpdateClient(client *Client) error
+	DeleteClient(id uint) error // Изменили тип id на uint
 	Close() error
 }
 
@@ -43,24 +45,49 @@ func NewPostgresRepository() (*PostgresRepository, error) {
 }
 
 func (r *PostgresRepository) CreateClient(client *Client) error {
-	return r.db.Create(client).Error
+	if err := r.db.Create(client).Error; err != nil {
+		return fmt.Errorf("failed to create client: %w", err)
+	}
+	return nil
 }
 
-func (r *PostgresRepository) GetClientByID(id string) (*Client, error) {
+func (r *PostgresRepository) GetClientByID(id uint) (*Client, error) {
 	var client Client
 	if err := r.db.First(&client, id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrNotFound
 		}
-		return nil, err
+		return nil, fmt.Errorf("failed to get client: %w", err)
 	}
 	return &client, nil
+}
+
+func (r *PostgresRepository) DeleteClient(id uint) error {
+	result := r.db.Delete(&Client{}, id)
+	if result.Error != nil {
+		return fmt.Errorf("failed to delete client: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (r *PostgresRepository) UpdateClient(client *Client) error {
+	result := r.db.Save(client)
+	if result.Error != nil {
+		return fmt.Errorf("failed to update client: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (r *PostgresRepository) Close() error {
 	sqlDB, err := r.db.DB()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get database instance: %w", err)
 	}
 	return sqlDB.Close()
 }
