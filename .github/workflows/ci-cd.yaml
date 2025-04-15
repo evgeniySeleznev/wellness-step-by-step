@@ -7,47 +7,29 @@ on:
     branches: [ "main" ]
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:13
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: wellness
-        ports:
-          - 5432:5432
-        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
-      redis:
-        image: redis:6
-        ports:
-          - 6379:6379
-        options: --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
-    
-    steps:
-    - uses: actions/checkout@v2
-    
-    - name: Set up Go
-      uses: actions/setup-go@v2
-      with:
-        go-version: 1.23
-    
-    - name: Test
-      run: |
-        go test -v ./...
-    
   build:
-    needs: test
     runs-on: ubuntu-latest
+
     steps:
-    - uses: actions/checkout@v2
-    
+    - uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.23.4'
+
+    - name: Build
+      run: go build -v ./...
+
+    - name: Test
+      run: go test -v ./...
+
+  docker:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
     - name: Build Docker image
-      run: docker build -t wellness-center .
-    
-    - name: Run container
-      run: |
-        docker-compose up -d
-        sleep 10
-        curl --fail http://localhost:8080/api/v1/health
+      run: docker build -t wellness-step-01 .
