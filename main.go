@@ -5,10 +5,13 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
-	"wellness-step-by-step/step-04/handlers"
-	"wellness-step-by-step/step-04/models"
-	"wellness-step-by-step/step-04/utils"
+	"wellness-step-by-step/step-05/consumer"
+	"wellness-step-by-step/step-05/handlers"
+	"wellness-step-by-step/step-05/models"
+	"wellness-step-by-step/step-05/utils"
 
 	"github.com/gin-gonic/gin"
 )
@@ -105,4 +108,15 @@ func main() {
 	if err := http.ListenAndServe(":"+port, router); err != nil {
 		logger.Fatalf("Server error: %v", err)
 	}
+	// После инициализации всех компонентов
+	clientConsumer := consumer.NewClientConsumer(dbRepo, redisClient)
+	go clientConsumer.Start(context.Background())
+
+	// Добавить в graceful shutdown
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	// Остановка Consumer перед завершением
+	clientConsumer.Stop()
 }

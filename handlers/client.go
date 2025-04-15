@@ -7,8 +7,9 @@ import (
 	"log"
 	"net/http"
 	"time"
-	"wellness-step-by-step/step-04/models"
-	"wellness-step-by-step/step-04/utils"
+	"wellness-step-by-step/step-05/consumer"
+	"wellness-step-by-step/step-05/models"
+	"wellness-step-by-step/step-05/utils"
 
 	"github.com/gin-gonic/gin"
 )
@@ -172,13 +173,23 @@ func (h *ClientHandler) DeleteClient(c *gin.Context) {
 // Вспомогательные методы
 
 func (h *ClientHandler) sendKafkaEvent(eventType string, client *models.Client) {
-	event := map[string]interface{}{
-		"event":    eventType,
-		"id":       client.ID,
-		"email":    client.Email,
-		"fullName": client.FullName,
+	event := consumer.ClientEvent{
+		Event: eventType,
+		Data:  *client,
 	}
-	h.sendRawKafkaEvent("client_events", event)
+
+	jsonData, err := json.Marshal(event)
+	if err != nil {
+		log.Printf("Failed to marshal Kafka event: %v", err)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := h.kafka.SendMessage(ctx, "client_events", nil, jsonData); err != nil {
+		log.Printf("Failed to send Kafka message: %v", err)
+	}
 }
 
 func (h *ClientHandler) sendRawKafkaEvent(topic string, event interface{}) {
