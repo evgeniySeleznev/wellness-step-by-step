@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"os"
 	"time"
-	"wellness-step-by-step/step-03/utils"
+	"wellness-step-by-step/step-04/handlers"
+	"wellness-step-by-step/step-04/models"
+	"wellness-step-by-step/step-04/utils"
 
 	"github.com/gin-gonic/gin"
 )
@@ -14,7 +16,7 @@ import (
 func main() {
 	logger := log.New(os.Stdout, "WELLNESS: ", log.LstdFlags|log.Lshortfile)
 
-	// Пытаемся подключиться к Redis с ретраями
+	// 1. Инициализация Redis
 	var redisClient utils.RedisClient
 	var err error
 	maxRetries := 5
@@ -40,16 +42,43 @@ func main() {
 		}
 	}()
 
+	// 2. Инициализация базы данных
+	dbRepo, err := models.NewPostgresRepository()
+	if err != nil {
+		logger.Fatalf("Failed to initialize database: %v", err)
+	}
+	defer func() {
+		if err := dbRepo.Close(); err != nil {
+			logger.Printf("Error closing database connection: %v", err)
+		}
+	}()
+
+	// 3. Инициализация Kafka
+	kafkaProducer, err := utils.NewKafkaProducer()
+	if err != nil {
+		logger.Printf("WARNING: Kafka initialization failed: %v", err)
+	} else {
+		defer kafkaProducer.Close()
+	}
+
+	// 4. Инициализация обработчиков
+	clientHandler := handlers.NewClientHandler(dbRepo, kafkaProducer)
+
+	// 5. Настройка маршрутов
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery())
 
 	api := router.Group("/api/v1")
 	{
+		api.POST("/clients", clientHandler.CreateClient)
+		api.GET("/clients/:id", clientHandler.GetClient)
+		api.PUT("/clients/:id", clientHandler.UpdateClient)
+		api.DELETE("/clients/:id", clientHandler.DeleteClient)
+
 		api.GET("/health", func(c *gin.Context) {
 			ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
 			defer cancel()
 
-			// Простая проверка Redis
 			if err := redisClient.SetToCache(ctx, "healthcheck", "ping", 10*time.Second); err != nil {
 				c.JSON(http.StatusServiceUnavailable, gin.H{
 					"status":  "degraded",
@@ -66,6 +95,7 @@ func main() {
 		})
 	}
 
+	// 6. Запуск сервера
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
