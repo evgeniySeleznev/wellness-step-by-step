@@ -26,10 +26,10 @@ jobs:
         options: --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
     
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     
     - name: Set up Go
-      uses: actions/setup-go@v2
+      uses: actions/setup-go@v3
       with:
         go-version: 1.23
     
@@ -37,17 +37,20 @@ jobs:
       run: |
         go test -v ./...
     
-  build:
+  build-and-test:
     needs: test
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     
-    - name: Build Docker image
-      run: docker build -t wellness-center .
+    - name: Set up Docker
+      uses: docker/setup-buildx-action@v2
     
-    - name: Run container
+    - name: Set up Docker Compose
+      uses: docker/setup-compose-action@v2
+    
+    - name: Build and test with Docker Compose
       run: |
-        docker-compose up -d
-        sleep 10
+        docker-compose -f docker-compose.yml up -d --build
+        sleep 15
         curl --fail http://localhost:8080/api/v1/health
