@@ -1,4 +1,4 @@
-module wellness-step-by-step/step-04
+module wellness-step-by-step/step-05
 
 go 1.23
 

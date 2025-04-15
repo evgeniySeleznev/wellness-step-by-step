@@ -2,11 +2,13 @@ package utils
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"time"
+	"wellness-step-by-step/step-05/models"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -71,6 +73,21 @@ func (r *redisClient) GetFromCache(ctx context.Context, key string) (string, err
 	}
 
 	return val, nil
+}
+
+func GetClientFromCache(ctx context.Context, redisClient RedisClient, clientID uint) (*models.Client, error) {
+	cacheKey := fmt.Sprintf("client:%d", clientID)
+	cachedData, err := redisClient.GetFromCache(ctx, cacheKey)
+	if err != nil {
+		return nil, err
+	}
+
+	var client models.Client
+	if err := json.Unmarshal([]byte(cachedData), &client); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal client from cache: %w", err)
+	}
+
+	return &client, nil
 }
 
 func (r *redisClient) SetToCache(ctx context.Context, key string, value string, expiration time.Duration) error {
