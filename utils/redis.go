@@ -65,7 +65,7 @@ func (r *redisClient) GetFromCache(ctx context.Context, key string) (string, err
 
 	val, err := r.client.Get(ctx, key).Result()
 	if err == redis.Nil {
-		return "", fmt.Errorf("key '%s' not found", key)
+		return "", redis.Nil // Возвращаем оригинальную ошибку
 	} else if err != nil {
 		return "", fmt.Errorf("failed to get value from Redis: %w", err)
 	}
