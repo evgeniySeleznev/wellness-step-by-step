@@ -7,8 +7,8 @@ import (
 	"log"
 	"os"
 	"time"
-	"wellness-step-by-step/step-05/models"
-	"wellness-step-by-step/step-05/utils"
+	"wellness-step-by-step/step-06/models"
+	"wellness-step-by-step/step-06/utils"
 
 	"github.com/segmentio/kafka-go"
 )
@@ -18,17 +18,21 @@ type ClientEvent struct {
 	Data  models.Client `json:"data"`
 }
 
+// Добавляем поле es в структуру ClientConsumer
 type ClientConsumer struct {
 	repo     models.Repository
 	cache    utils.RedisClient
+	es       utils.ElasticsearchClient
 	reader   *kafka.Reader
 	shutdown chan struct{}
 }
 
-func NewClientConsumer(repo models.Repository, cache utils.RedisClient) *ClientConsumer {
+// Обновляем конструктор
+func NewClientConsumer(repo models.Repository, cache utils.RedisClient, es utils.ElasticsearchClient) *ClientConsumer {
 	return &ClientConsumer{
 		repo:  repo,
 		cache: cache,
+		es:    es,
 		reader: kafka.NewReader(kafka.ReaderConfig{
 			Brokers: []string{os.Getenv("KAFKA_BROKER")},
 			Topic:   "client_events",
@@ -92,8 +96,9 @@ func (c *ClientConsumer) processMessages(ctx context.Context) {
 	// В реальном проекте здесь нужно коммитить offset только после успешной обработки
 }
 
+// Обновляем обработчики событий
 func (c *ClientConsumer) handleClientCreated(ctx context.Context, client models.Client) {
-	// 1. Сохраняем в PostgreSQL (если еще не сохранено)
+	// 1. Сохраняем в PostgreSQL
 	existing, err := c.repo.GetClientByID(client.ID)
 	if err == nil && existing != nil {
 		return // Клиент уже существует
@@ -104,7 +109,7 @@ func (c *ClientConsumer) handleClientCreated(ctx context.Context, client models.
 		return
 	}
 
-	// 2. Сериализуем клиента в JSON и сохраняем в Redis
+	// 2. Сохраняем в Redis
 	cacheKey := fmt.Sprintf("client:%d", client.ID)
 	clientJSON, err := json.Marshal(client)
 	if err != nil {
@@ -114,6 +119,13 @@ func (c *ClientConsumer) handleClientCreated(ctx context.Context, client models.
 
 	if err := c.cache.SetToCache(ctx, cacheKey, string(clientJSON), 24*time.Hour); err != nil {
 		log.Printf("Failed to cache client: %v", err)
+	}
+
+	// 3. Индексируем в Elasticsearch
+	if c.es != nil {
+		if err := c.es.IndexClient(ctx, "clients", fmt.Sprintf("%d", client.ID), client); err != nil {
+			log.Printf("Failed to index client in Elasticsearch: %v", err)
+		}
 	}
 
 	log.Printf("Processed client_created event for client ID %d", client.ID)
@@ -126,7 +138,7 @@ func (c *ClientConsumer) handleClientUpdated(ctx context.Context, client models.
 		return
 	}
 
-	// 2. Сериализуем клиента в JSON и обновляем кэш
+	// 2. Обновляем в Redis
 	cacheKey := fmt.Sprintf("client:%d", client.ID)
 	clientJSON, err := json.Marshal(client)
 	if err != nil {
@@ -138,14 +150,28 @@ func (c *ClientConsumer) handleClientUpdated(ctx context.Context, client models.
 		log.Printf("Failed to update client in cache: %v", err)
 	}
 
+	// 3. Обновляем в Elasticsearch
+	if c.es != nil {
+		if err := c.es.IndexClient(ctx, "clients", fmt.Sprintf("%d", client.ID), client); err != nil {
+			log.Printf("Failed to update client in Elasticsearch: %v", err)
+		}
+	}
+
 	log.Printf("Processed client_updated event for client ID %d", client.ID)
 }
 
 func (c *ClientConsumer) handleClientDeleted(ctx context.Context, clientID uint) {
-	// Удаляем из Redis (используем пустую строку с TTL 0)
+	// Удаляем из Redis
 	cacheKey := fmt.Sprintf("client:%d", clientID)
 	if err := c.cache.SetToCache(ctx, cacheKey, "", 0); err != nil {
 		log.Printf("Failed to delete client from cache: %v", err)
+	}
+
+	// Удаляем из Elasticsearch
+	if c.es != nil {
+		if err := c.es.DeleteClient(ctx, "clients", fmt.Sprintf("%d", clientID)); err != nil {
+			log.Printf("Failed to delete client from Elasticsearch: %v", err)
+		}
 	}
 
 	log.Printf("Processed client_deleted event for client ID %d", clientID)

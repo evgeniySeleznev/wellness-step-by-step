@@ -8,10 +8,10 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
-	"wellness-step-by-step/step-05/consumer"
-	"wellness-step-by-step/step-05/handlers"
-	"wellness-step-by-step/step-05/models"
-	"wellness-step-by-step/step-05/utils"
+	"wellness-step-by-step/step-06/consumer"
+	"wellness-step-by-step/step-06/handlers"
+	"wellness-step-by-step/step-06/models"
+	"wellness-step-by-step/step-06/utils"
 
 	"github.com/gin-gonic/gin"
 )
@@ -64,10 +64,38 @@ func main() {
 		defer kafkaProducer.Close()
 	}
 
-	// 4. Инициализация обработчиков
-	clientHandler := handlers.NewClientHandler(dbRepo, kafkaProducer)
+	// 4. Инициализация Elasticsearch
+	var esClient utils.ElasticsearchClient
+	for i := 0; i < maxRetries; i++ {
+		esClient, err = utils.NewElasticsearchClient()
+		if err == nil {
+			break
+		}
+		logger.Printf("Attempt %d: Failed to connect to Elasticsearch: %v", i+1, err)
+		if i < maxRetries-1 {
+			time.Sleep(retryDelay)
+		}
+	}
 
-	// 5. Настройка маршрутов
+	if err != nil {
+		logger.Printf("WARNING: Elasticsearch initialization failed: %v", err)
+	} else {
+		defer func() {
+			if err := esClient.Close(); err != nil {
+				logger.Printf("Error closing Elasticsearch connection: %v", err)
+			}
+		}()
+	}
+
+	// 5. Инициализация обработчиков
+	clientHandler := handlers.NewClientHandler(dbRepo, kafkaProducer, esClient)
+
+	// 6. Инициализация Consumer
+	clientConsumer := consumer.NewClientConsumer(dbRepo, redisClient, esClient)
+	go clientConsumer.Start(context.Background())
+	defer clientConsumer.Stop()
+
+	// 7. Настройка маршрутов
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery())
 
@@ -77,46 +105,80 @@ func main() {
 		api.GET("/clients/:id", clientHandler.GetClient)
 		api.PUT("/clients/:id", clientHandler.UpdateClient)
 		api.DELETE("/clients/:id", clientHandler.DeleteClient)
+		api.GET("/clients/search", clientHandler.SearchClients) // Новый endpoint для поиска
 
 		api.GET("/health", func(c *gin.Context) {
 			ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
 			defer cancel()
 
-			if err := redisClient.SetToCache(ctx, "healthcheck", "ping", 10*time.Second); err != nil {
-				c.JSON(http.StatusServiceUnavailable, gin.H{
-					"status":  "degraded",
-					"details": gin.H{"redis": "unavailable"},
-					"error":   err.Error(),
-				})
-				return
+			healthStatus := gin.H{
+				"status": "ok",
+				"details": gin.H{
+					"redis":         "available",
+					"postgres":      "available",
+					"kafka":         "unknown",
+					"elasticsearch": "unknown",
+				},
 			}
 
-			c.JSON(http.StatusOK, gin.H{
-				"status":  "ok",
-				"details": gin.H{"redis": "available"},
-			})
+			// Проверка Redis
+			if err := redisClient.SetToCache(ctx, "healthcheck", "ping", 10*time.Second); err != nil {
+				healthStatus["status"] = "degraded"
+				healthStatus["details"].(gin.H)["redis"] = "unavailable"
+				healthStatus["error"] = err.Error()
+			}
+
+			// Проверка Elasticsearch
+			if esClient != nil {
+				healthStatus["details"].(gin.H)["elasticsearch"] = "available"
+			} else {
+				healthStatus["details"].(gin.H)["elasticsearch"] = "unavailable"
+			}
+
+			// Проверка Kafka
+			if kafkaProducer != nil {
+				healthStatus["details"].(gin.H)["kafka"] = "available"
+			}
+
+			if healthStatus["status"] == "ok" {
+				c.JSON(http.StatusOK, healthStatus)
+			} else {
+				c.JSON(http.StatusServiceUnavailable, healthStatus)
+			}
 		})
 	}
 
-	// 6. Запуск сервера
+	// 8. Запуск сервера
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
 
-	logger.Printf("Server is running on port %s", port)
-	if err := http.ListenAndServe(":"+port, router); err != nil {
-		logger.Fatalf("Server error: %v", err)
+	// Настройка graceful shutdown
+	server := &http.Server{
+		Addr:    ":" + port,
+		Handler: router,
 	}
-	// После инициализации всех компонентов
-	clientConsumer := consumer.NewClientConsumer(dbRepo, redisClient)
-	go clientConsumer.Start(context.Background())
 
-	// Добавить в graceful shutdown
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
 
-	// Остановка Consumer перед завершением
-	clientConsumer.Stop()
+	go func() {
+		logger.Printf("Server is running on port %s", port)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Fatalf("Server error: %v", err)
+		}
+	}()
+
+	<-quit
+	logger.Println("Shutting down server...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(ctx); err != nil {
+		logger.Fatalf("Server forced to shutdown: %v", err)
+	}
+
+	logger.Println("Server exiting")
 }
