@@ -7,8 +7,8 @@ import (
 	"log"
 	"os"
 	"time"
-	"wellness-step-by-step/step-06/models"
-	"wellness-step-by-step/step-06/utils"
+	"wellness-step-by-step/step-07/models"
+	"wellness-step-by-step/step-07/utils"
 
 	"github.com/segmentio/kafka-go"
 )
@@ -71,6 +71,13 @@ func (c *ClientConsumer) processMessages(ctx context.Context) {
 		if err == context.Canceled {
 			return
 		}
+
+		utils.CaptureError(err, map[string]interface{}{
+			"action":   "kafka_read",
+			"topic":    c.reader.Config().Topic,
+			"group_id": c.reader.Config().GroupID,
+		})
+
 		log.Printf("Kafka read error: %v (will retry)", err)
 		time.Sleep(5 * time.Second)
 		return

@@ -7,9 +7,9 @@ import (
 	"log"
 	"net/http"
 	"time"
-	"wellness-step-by-step/step-06/consumer"
-	"wellness-step-by-step/step-06/models"
-	"wellness-step-by-step/step-06/utils"
+	"wellness-step-by-step/step-07/consumer"
+	"wellness-step-by-step/step-07/models"
+	"wellness-step-by-step/step-07/utils"
 
 	"github.com/gin-gonic/gin"
 )
@@ -68,24 +68,32 @@ func (h *ClientHandler) CreateClient(c *gin.Context) {
 
 func (h *ClientHandler) GetClient(c *gin.Context) {
 	idStr := c.Param("id")
-	if idStr == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "client ID is required"})
-		return
-	}
-
 	id, err := parseUint(idStr)
 	if err != nil {
+		utils.CaptureError(err, map[string]interface{}{
+			"endpoint":  c.Request.URL.Path,
+			"method":    c.Request.Method,
+			"client_id": idStr,
+			"action":    "parse_id",
+		})
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid client ID format"})
 		return
 	}
 
 	client, err := h.repo.GetClientByID(id)
 	if err != nil {
+		utils.CaptureError(err, map[string]interface{}{
+			"endpoint":  c.Request.URL.Path,
+			"method":    c.Request.Method,
+			"client_id": id,
+			"action":    "get_client",
+		})
+
 		if err == models.ErrNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "client not found"})
-			return
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
