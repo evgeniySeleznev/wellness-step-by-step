@@ -11,4 +11,6 @@ RUN go build -o main .
 
 EXPOSE 8080
 
+ENV ELASTICSEARCH_URL=http://elasticsearch:9200
+
 CMD ["./main"]

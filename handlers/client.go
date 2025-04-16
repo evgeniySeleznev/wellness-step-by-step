@@ -7,9 +7,9 @@ import (
 	"log"
 	"net/http"
 	"time"
-	"wellness-step-by-step/step-05/consumer"
-	"wellness-step-by-step/step-05/models"
-	"wellness-step-by-step/step-05/utils"
+	"wellness-step-by-step/step-06/consumer"
+	"wellness-step-by-step/step-06/models"
+	"wellness-step-by-step/step-06/utils"
 
 	"github.com/gin-gonic/gin"
 )
@@ -17,12 +17,14 @@ import (
 type ClientHandler struct {
 	repo  models.Repository
 	kafka utils.KafkaProducer
+	es    utils.ElasticsearchClient // Добавляем поле для Elasticsearch
 }
 
-func NewClientHandler(repo models.Repository, kafka utils.KafkaProducer) *ClientHandler {
+func NewClientHandler(repo models.Repository, kafka utils.KafkaProducer, es utils.ElasticsearchClient) *ClientHandler {
 	return &ClientHandler{
 		repo:  repo,
 		kafka: kafka,
+		es:    es, // Инициализируем Elasticsearch клиент
 	}
 }
 
@@ -220,4 +222,74 @@ func parseUint(s string) (uint, error) {
 	var id uint
 	_, err := fmt.Sscanf(s, "%d", &id)
 	return id, err
+}
+
+func (h *ClientHandler) SearchClients(c *gin.Context) {
+	// Проверяем, инициализирован ли Elasticsearch клиент
+	if h.es == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "Elasticsearch service is not available",
+		})
+		return
+	}
+
+	query := c.Query("q")
+	if query == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "search query is required"})
+		return
+	}
+
+	searchQuery := map[string]interface{}{
+		"query": map[string]interface{}{
+			"multi_match": map[string]interface{}{
+				"query":  query,
+				"fields": []string{"full_name", "email", "phone"},
+			},
+		},
+	}
+
+	results, err := h.es.SearchClients(c.Request.Context(), "clients", searchQuery)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Преобразуем результаты в ClientResponse
+	// В методе SearchClients после получения results
+	var clients []ClientResponse
+	for _, hit := range results {
+		id, ok := hit["id"].(float64)
+		if !ok {
+			log.Printf("Invalid id type in search result: %v", hit["id"])
+			continue
+		}
+
+		fullName, ok := hit["full_name"].(string)
+		if !ok {
+			log.Printf("Invalid full_name type in search result: %v", hit["full_name"])
+			continue
+		}
+
+		email, ok := hit["email"].(string)
+		if !ok {
+			log.Printf("Invalid email type in search result: %v", hit["email"])
+			continue
+		}
+
+		phone, ok := hit["phone"].(string)
+		if !ok {
+			log.Printf("Invalid phone type in search result: %v", hit["phone"])
+			continue
+		}
+
+		client := ClientResponse{
+			ID:       uint(id),
+			FullName: fullName,
+			Email:    email,
+			Phone:    phone,
+		}
+		clients = append(clients, client)
+	}
+
+	c.JSON(http.StatusOK, clients)
 }
