@@ -5,6 +5,7 @@ services:
     build: .
     ports:
       - "8080:8080"
+    env_file: .env  # Подключаем .env файл
     environment:
       - PORT=8080
       - DB_HOST=postgres
@@ -15,6 +16,9 @@ services:
       - REDIS_HOST=redis:6379
       - KAFKA_BROKER=kafka:9092
       - ELASTICSEARCH_URL=http://elasticsearch:9200
+      - SENTRY_DSN=${SENTRY_DSN}
+      - APP_ENV=${APP_ENV}
+      - APP_VERSION=${APP_VERSION}
     depends_on:
       postgres:
         condition: service_healthy

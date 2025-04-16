@@ -90,3 +90,7 @@ jobs:
         docker stop app redis postgres || true
         docker rm app redis postgres || true
         docker network rm wellness-net || true
+
+env:
+  SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+  APP_ENV: ci

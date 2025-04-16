@@ -2,22 +2,64 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"github.com/getsentry/sentry-go"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"syscall"
 	"time"
-	"wellness-step-by-step/step-06/consumer"
-	"wellness-step-by-step/step-06/handlers"
-	"wellness-step-by-step/step-06/models"
-	"wellness-step-by-step/step-06/utils"
+	"wellness-step-by-step/step-07/consumer"
+	"wellness-step-by-step/step-07/handlers"
+	"wellness-step-by-step/step-07/middleware"
+	"wellness-step-by-step/step-07/models"
+	"wellness-step-by-step/step-07/utils"
 
 	"github.com/gin-gonic/gin"
 )
 
 func main() {
 	logger := log.New(os.Stdout, "WELLNESS: ", log.LstdFlags|log.Lshortfile)
+
+	// Инициализация Sentry
+	// После загрузки .env
+	if dsn := os.Getenv("SENTRY_DSN"); dsn != "" {
+		err := sentry.Init(sentry.ClientOptions{
+			Dsn:              dsn,
+			Debug:            true,
+			Environment:      os.Getenv("APP_ENV"),
+			Release:          "wellness@" + os.Getenv("APP_VERSION"),
+			TracesSampleRate: 1.0, // 100% для теста
+			AttachStacktrace: true,
+		})
+		if err != nil {
+			log.Fatalf("Sentry init failed: %v", err)
+		}
+		log.Println("Sentry initialized with DSN:", dsn)
+
+		// Flush перед выходом
+		defer sentry.Flush(2 * time.Second)
+	}
+
+	if err := sentry.Init(sentry.ClientOptions{
+		Dsn:   os.Getenv("SENTRY_DSN"),
+		Debug: true, // Включите для тестов
+	}); err != nil {
+		log.Fatalf("sentry.Init: %s", err)
+	}
+
+	// Обработка паник
+	defer func() {
+		if r := recover(); r != nil {
+			err := fmt.Errorf("application panic: %v", r)
+			utils.CaptureError(err, map[string]interface{}{
+				"stack": string(debug.Stack()),
+			})
+			logger.Fatalf("Application panic: %v", r)
+		}
+	}()
 
 	// 1. Инициализация Redis
 	var redisClient utils.RedisClient
@@ -97,7 +139,17 @@ func main() {
 
 	// 7. Настройка маршрутов
 	router := gin.New()
+	router.Use(middleware.SentryMiddleware())
 	router.Use(gin.Logger(), gin.Recovery())
+
+	// Добавляем тестовый маршрут
+	router.GET("/test-sentry", func(c *gin.Context) {
+		// Вариант 1: Через Sentry напрямую
+		sentry.CaptureException(fmt.Errorf("тестовая ошибка Sentry %s", time.Now()))
+
+		// Вариант 2: Паника (должна перехватываться)
+		panic("тестовая паника " + time.Now().Format(time.RFC3339))
+	})
 
 	api := router.Group("/api/v1")
 	{
@@ -181,4 +233,5 @@ func main() {
 	}
 
 	logger.Println("Server exiting")
+
 }

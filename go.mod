@@ -1,9 +1,10 @@
-module wellness-step-by-step/step-06
+module wellness-step-by-step/step-07
 
 go 1.23
 
 require (
 	github.com/elastic/go-elasticsearch/v8 v8.17.1
+	github.com/getsentry/sentry-go v0.32.0
 	github.com/gin-gonic/gin v1.10.0
 	github.com/redis/go-redis/v9 v9.7.3
 	github.com/segmentio/kafka-go v0.4.47
