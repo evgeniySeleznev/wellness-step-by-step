@@ -6,12 +6,6 @@ on:
   pull_request:
     branches: [ "main" ]
 
-services:
-  prometheus:
-    image: prom/prometheus
-    ports:
-      - 9090:9090
-
 jobs:
   unit-tests:
     runs-on: ubuntu-22.04
