@@ -30,6 +30,17 @@ jobs:
         ports:
           - 6379:6379
         options: --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
+      prometheus:
+        image: prom/prometheus
+        ports:
+          - 9090:9090
+        volumes:
+          - ./config/prometheus-test.yml:/etc/prometheus/prometheus.yml
+        options: >-
+          --health-cmd "wget -qO- http://localhost:9090/-/ready || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     
     steps:
     - uses: actions/checkout@v3
@@ -89,6 +100,14 @@ jobs:
           wellness-app
         sleep 10 # Увеличиваем время ожидания для инициализации
         curl --fail http://localhost:8080/api/v1/health
+
+    - name: Start Prometheus
+      run: |
+        docker run -d --name prometheus \
+          -p 9090:9090 \
+          -v $PWD/config/prometheus-test.yml:/etc/prometheus/prometheus.yml \
+          prom/prometheus
+        sleep 5 # Даем время на запуск
     
     - name: Cleanup
       if: always()
