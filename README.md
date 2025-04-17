@@ -29,10 +29,10 @@ docker-compose up -d
 ```
 
 # Доступные эндпоинты после запуска:
-•	http://localhost:8080/api/v1/health - Healthcheck
-•	http://localhost:8080/metrics - Prometheus метрики
-•	http://localhost:3000 - Grafana (admin/admin)
-•	http://localhost:9090 - Prometheus UI
+-	http://localhost:8080/api/v1/health - Healthcheck
+-	http://localhost:8080/metrics - Prometheus метрики
+-	http://localhost:3000 - Grafana (admin/admin)
+-	http://localhost:9090 - Prometheus UI
 
 # ✨ Новые возможности
 
