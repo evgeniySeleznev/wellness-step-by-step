@@ -30,12 +30,12 @@ jobs:
         image: prom/prometheus
         ports:
           - 9090:9090
-        # Убрано монтирование файла для unit-тестов
-        command: 
-          - '--config.file=/etc/prometheus/prometheus.yml'
-          - '--storage.tsdb.path=/prometheus'
-          - '--web.console.libraries=/usr/share/prometheus/console_libraries'
-          - '--web.console.templates=/usr/share/prometheus/consoles'
+        # Упрощенная конфигурация без монтирования файлов
+        options: >-
+          --health-cmd "wget -qO- http://localhost:9090/-/ready || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     
     steps:
     - uses: actions/checkout@v3
