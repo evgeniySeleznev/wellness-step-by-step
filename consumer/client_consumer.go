@@ -7,8 +7,8 @@ import (
 	"log"
 	"os"
 	"time"
-	"wellness-step-by-step/step-07/models"
-	"wellness-step-by-step/step-07/utils"
+	"wellness-step-by-step/step-08/models"
+	"wellness-step-by-step/step-08/utils"
 
 	"github.com/segmentio/kafka-go"
 )

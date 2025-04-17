@@ -2,7 +2,7 @@ package middleware
 
 import (
 	"github.com/gin-gonic/gin"
-	"wellness-step-by-step/step-07/utils"
+	"wellness-step-by-step/step-08/utils"
 )
 
 func ErrorHandler() gin.HandlerFunc {

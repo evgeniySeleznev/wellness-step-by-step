@@ -7,9 +7,9 @@ import (
 	"log"
 	"net/http"
 	"time"
-	"wellness-step-by-step/step-07/consumer"
-	"wellness-step-by-step/step-07/models"
-	"wellness-step-by-step/step-07/utils"
+	"wellness-step-by-step/step-08/consumer"
+	"wellness-step-by-step/step-08/models"
+	"wellness-step-by-step/step-08/utils"
 
 	"github.com/gin-gonic/gin"
 )

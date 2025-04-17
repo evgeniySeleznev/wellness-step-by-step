@@ -11,11 +11,12 @@ import (
 	"runtime/debug"
 	"syscall"
 	"time"
-	"wellness-step-by-step/step-07/consumer"
-	"wellness-step-by-step/step-07/handlers"
-	"wellness-step-by-step/step-07/middleware"
-	"wellness-step-by-step/step-07/models"
-	"wellness-step-by-step/step-07/utils"
+	"wellness-step-by-step/step-08/consumer"
+	"wellness-step-by-step/step-08/handlers"
+	"wellness-step-by-step/step-08/middleware"
+	"wellness-step-by-step/step-08/models"
+	"wellness-step-by-step/step-08/monitoring"
+	"wellness-step-by-step/step-08/utils"
 
 	"github.com/gin-gonic/gin"
 )
@@ -103,7 +104,12 @@ func main() {
 	if err != nil {
 		logger.Printf("WARNING: Kafka initialization failed: %v", err)
 	} else {
-		defer kafkaProducer.Close()
+		defer func(kafkaProducer utils.KafkaProducer) {
+			err := kafkaProducer.Close()
+			if err != nil {
+
+			}
+		}(kafkaProducer)
 	}
 
 	// 4. Инициализация Elasticsearch
@@ -141,6 +147,12 @@ func main() {
 	router := gin.New()
 	router.Use(middleware.SentryMiddleware())
 	router.Use(gin.Logger(), gin.Recovery())
+
+	// Инициализация метрик
+	monitoring.Init()
+
+	// Добавляем эндпоинт для Prometheus
+	router.GET("/metrics", gin.WrapH(monitoring.Handler()))
 
 	// Добавляем тестовый маршрут
 	router.GET("/test-sentry", func(c *gin.Context) {

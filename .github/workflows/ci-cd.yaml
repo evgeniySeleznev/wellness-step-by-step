@@ -19,11 +19,23 @@ jobs:
         ports:
           - 5432:5432
         options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+      
       redis:
         image: redis:6
         ports:
           - 6379:6379
         options: --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
+      
+      prometheus:
+        image: prom/prometheus
+        ports:
+          - 9090:9090
+        # Упрощенная конфигурация без монтирования файлов
+        options: >-
+          --health-cmd "wget -qO- http://localhost:9090/-/ready || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     
     steps:
     - uses: actions/checkout@v3
@@ -46,9 +58,24 @@ jobs:
     - name: Set up Docker
       uses: docker/setup-buildx-action@v2
     
+    - name: Create config file
+      run: |
+        mkdir -p config
+        cat > config/prometheus-ci.yml <<EOL
+        global:
+          scrape_interval: 15s
+
+        scrape_configs:
+          - job_name: 'wellness-app'
+            static_configs:
+              - targets: ['app:8080']
+        EOL
+    
     - name: Start services
       run: |
         docker network create wellness-net
+        
+        # Базовые сервисы
         docker run -d --name redis --network wellness-net -p 6379:6379 redis:6
         docker run -d --name postgres \
           --network wellness-net \
@@ -57,38 +84,55 @@ jobs:
           -e POSTGRES_DB=wellness \
           -p 5432:5432 \
           postgres:13
-        docker run -d --name elasticsearch \
+        
+        # Elasticsearch
+        docker run -d \
+          --name elasticsearch \
           --network wellness-net \
-          -e discovery.type=single-node \
-          -e xpack.security.enabled=false \
-          -e bootstrap.memory_lock=true \
-          -e "ES_JAVA_OPTS=-Xms512m -Xmx512m" \
           -p 9200:9200 \
+          -e "discovery.type=single-node" \
+          -e "xpack.security.enabled=false" \
+          -e "bootstrap.memory_lock=true" \
+          -e "ES_JAVA_OPTS=-Xms512m -Xmx512m" \
           docker.elastic.co/elasticsearch/elasticsearch:8.13.0
-        sleep 20 # Даем больше времени для инициализации Elasticsearch
+        
+        # Prometheus с конфигом
+        docker run -d \
+          --name prometheus \
+          --network wellness-net \
+          -p 9090:9090 \
+          -v $(pwd)/config/prometheus-ci.yml:/etc/prometheus/prometheus.yml \
+          prom/prometheus
+        
+        sleep 25
     
     - name: Build and test
       run: |
         docker build -t wellness-app .
-        docker run -d --name app \
+        docker run -d \
+          --name app \
           --network wellness-net \
           -p 8080:8080 \
-          -e REDIS_HOST=redis:6379 \
+          -e REDIS_HOST=redis \
           -e DB_HOST=postgres \
           -e DB_USER=postgres \
           -e DB_PASSWORD=postgres \
           -e DB_NAME=wellness \
           -e DB_PORT=5432 \
           -e ELASTICSEARCH_URL=http://elasticsearch:9200 \
+          -e PROMETHEUS_ENABLED=true \
           wellness-app
-        sleep 10 # Увеличиваем время ожидания для инициализации
+        
+        sleep 15
         curl --fail http://localhost:8080/api/v1/health
+        curl --fail http://localhost:8080/metrics
+        curl --fail http://localhost:9090/targets
     
     - name: Cleanup
       if: always()
       run: |
-        docker stop app redis postgres || true
-        docker rm app redis postgres || true
+        docker stop app redis postgres elasticsearch prometheus || true
+        docker rm app redis postgres elasticsearch prometheus || true
         docker network rm wellness-net || true
 
 env:
