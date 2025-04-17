@@ -19,18 +19,16 @@ jobs:
         ports:
           - 5432:5432
         options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
-
-      prometheus:
+      redis:
+        image: redis:6
+        ports:
+          - 6379:6379
+        options: --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
+      prometheus:  # Добавляем Prometheus для unit-тестов
         image: prom/prometheus
         ports:
           - 9090:9090
-        volumes:
-          - ./config/prometheus-test.yml:/etc/prometheus/prometheus.yml
-        options: >-
-          --health-cmd "wget -qO- http://localhost:9090/-/ready || exit 1"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+        options: --health-cmd "wget -qO- http://localhost:9090/-/ready || exit 1" --health-interval 10s --health-timeout 5s --health-retries 5
     
     steps:
     - uses: actions/checkout@v3
@@ -56,8 +54,6 @@ jobs:
     - name: Start services
       run: |
         docker network create wellness-net
-        
-        # Основные сервисы
         docker run -d --name redis --network wellness-net -p 6379:6379 redis:6
         docker run -d --name postgres \
           --network wellness-net \
@@ -66,15 +62,26 @@ jobs:
           -e POSTGRES_DB=wellness \
           -p 5432:5432 \
           postgres:13
-        
-        # Prometheus
-        docker run -d --name prometheus \
+        docker run -d --name elasticsearch \
+          --network wellness-net \
+          -e discovery.type=single-node \
+          -e xpack.security.enabled=false \
+          -e bootstrap.memory_lock=true \
+          -e "ES_JAVA_OPTS=-Xms512m -Xmx512m" \
+          -p 9200:9200 \
+          docker.elastic.co/elasticsearch/elasticsearch:8.13.0
+        docker run -d --name prometheus \  # Добавляем Prometheus
           --network wellness-net \
           -p 9090:9090 \
-          -v $PWD/config/prometheus-test.yml:/etc/prometheus/prometheus.yml \
+          -v $PWD/config/prometheus-ci.yml:/etc/prometheus/prometheus.yml \
           prom/prometheus
-        
-        sleep 10
+        docker run -d --name grafana \  # Добавляем Grafana
+          --network wellness-net \
+          -p 3000:3000 \
+          -e GF_AUTH_ANONYMOUS_ENABLED=true \
+          -e GF_AUTH_ANONYMOUS_ORG_ROLE=Admin \
+          grafana/grafana
+        sleep 25 # Увеличиваем время ожидания
     
     - name: Build and test
       run: |
@@ -82,15 +89,28 @@ jobs:
         docker run -d --name app \
           --network wellness-net \
           -p 8080:8080 \
+          -e REDIS_HOST=redis:6379 \
+          -e DB_HOST=postgres \
+          -e DB_USER=postgres \
+          -e DB_PASSWORD=postgres \
+          -e DB_NAME=wellness \
+          -e DB_PORT=5432 \
+          -e ELASTICSEARCH_URL=http://elasticsearch:9200 \
           -e PROMETHEUS_ENABLED=true \
           wellness-app
-        sleep 5
+        sleep 15
         curl --fail http://localhost:8080/api/v1/health
-        curl --fail http://localhost:8080/metrics
+        curl --fail http://localhost:8080/metrics  # Проверяем метрики
+        curl --fail http://localhost:9090/targets  # Проверяем Prometheus
+        curl --fail http://localhost:3000/api/health  # Проверяем Grafana
     
     - name: Cleanup
       if: always()
       run: |
-        docker stop app redis postgres prometheus || true
-        docker rm app redis postgres prometheus || true
+        docker stop app redis postgres elasticsearch prometheus grafana || true
+        docker rm app redis postgres elasticsearch prometheus grafana || true
         docker network rm wellness-net || true
+
+env:
+  SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+  APP_ENV: ci
