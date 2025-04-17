@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 	"time"
-	"wellness-step-by-step/step-07/models"
+	"wellness-step-by-step/step-08/models"
 
 	"github.com/redis/go-redis/v9"
 )
